@@ -11,6 +11,7 @@
 
 void syscall_entry (void);
 void syscall_handler (struct intr_frame *);
+static bool validate_buffer (char *buffer, size_t size);
 
 /* System call.
  *
@@ -53,7 +54,12 @@ syscall_handler (struct intr_frame *f) {
 			if ((int) f->R.rdi == 1) {
 				const char *buffer = (const char *) f->R.rsi;
 				size_t size = (size_t) f->R.rdx;
-				// TODO: 잘못된 버퍼 접근 방지
+
+				// 버퍼 주소 유효성 검사
+				if (!validate_buffer (buffer, size)) {
+					thread_exit ();
+				}
+
 				putbuf (buffer, size);
 				f->R.rax = size;
 			} else {
@@ -64,4 +70,30 @@ syscall_handler (struct intr_frame *f) {
 			thread_exit ();
 			break;
 	}
+}
+
+// 사용자 프로그램이 NULL, 혹은 커널 주소로 접근하는 것을 방지
+static bool
+validate_buffer (char *buffer, size_t size) {
+	if (buffer == NULL || !is_user_vaddr (buffer))
+		return false;
+	
+	if (size == 0)
+		return true;
+	
+	char *end = buffer + size - 1;
+
+	// 끝점이 유저 영역인지 검사
+	if (!is_user_vaddr (end))
+		return false;
+	
+	// 페이지 매핑 검사
+	for (char *addr = pg_round_down (buffer);
+	addr <= end;
+	addr += PGSIZE) {
+		if (!pml4_get_page (thread_current ()->pml4, (const void *) addr))
+			return false;
+	}
+
+	return true;
 }
