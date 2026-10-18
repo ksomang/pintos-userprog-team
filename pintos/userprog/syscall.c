@@ -11,7 +11,7 @@
 
 void syscall_entry (void);
 void syscall_handler (struct intr_frame *);
-static bool validate_buffer (char *buffer, size_t size);
+static bool validate_buffer (const char *buffer, size_t size);
 
 /* System call.
  *
@@ -74,14 +74,14 @@ syscall_handler (struct intr_frame *f) {
 
 // 사용자 프로그램이 NULL, 혹은 커널 주소로 접근하는 것을 방지
 static bool
-validate_buffer (char *buffer, size_t size) {
+validate_buffer (const char *buffer, size_t size) {
 	if (buffer == NULL || !is_user_vaddr (buffer))
 		return false;
 	
 	if (size == 0)
 		return true;
 	
-	char *end = buffer + size - 1;
+	char *end = (char *)buffer + size - 1;
 
 	// 끝점이 유저 영역인지 검사
 	if (!is_user_vaddr (end))
