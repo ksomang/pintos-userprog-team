@@ -14,6 +14,7 @@
 #include "filesys/filesys.h"
 #include "filesys/file.h"
 #include "threads/palloc.h"
+#include "devices/input.h"
 
 void syscall_entry (void);
 static bool check_address (const void *addr);
@@ -26,7 +27,8 @@ static bool sys_remove (const char *file);
 static void sys_exit (int status);
 static int sys_open (const char *file);
 static void sys_close (int fd);
-static struct file *fd_to_file (int gd);
+static int sys_read (int fd, void *buffer, unsigned size);
+static struct file *fd_to_file (int fd);
 void syscall_handler (struct intr_frame *);
 
 /* System call.
@@ -179,6 +181,37 @@ sys_close (int fd) {
 	lock_release (&filesys_lock);
 }
 
+static int 
+sys_read (int fd, void *buffer, unsigned size) {
+	if (!check_buffer (buffer, size)) {
+		sys_exit (-1);
+	}
+
+	if (fd == 0)
+	{
+		char *buf = (char *) buffer;
+
+		for (unsigned i = 0; i < size; i++) {
+			buf[i] = input_getc ();
+		}
+		return size;
+	}
+
+	struct file *file = fd_to_file (fd);
+
+	if (file == NULL) {
+		sys_exit (-1);
+	}
+
+	lock_acquire (&filesys_lock);
+
+	int bytes_read = file_read (file, buffer, size);
+
+	lock_release (&filesys_lock);
+
+	return bytes_read;
+}
+
 /* FD에 해당하는 열린 파일을 돌려준다.
    FD가 범위 밖(2 미만, FD_MAX 이상)이거나 빈 칸이면 NULL을 돌려준다.
    fd 0, 1(콘솔)은 여기서 다루지 않는다. */
@@ -312,6 +345,11 @@ syscall_handler (struct intr_frame *f) {
 			break;
 		case SYS_CLOSE:
 			sys_close ((int) f->R.rdi);
+			break;
+		case SYS_READ:
+			f->R.rax = sys_read ((int) f->R.rdi, 
+								 (void *) f->R.rsi, 
+								 (unsigned) f->R.rdx);
 			break;
 		default:
 			sys_exit (-1);
