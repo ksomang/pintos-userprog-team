@@ -187,8 +187,7 @@ sys_read (int fd, void *buffer, unsigned size) {
 		sys_exit (-1);
 	}
 
-	if (fd == 0)
-	{
+	if (fd == 0) {
 		char *buf = (char *) buffer;
 
 		for (unsigned i = 0; i < size; i++) {
@@ -264,9 +263,21 @@ sys_write (int fd, const void *buffer, unsigned length) {
 	if (fd == 1) {
 		putbuf (buffer, length);
 		return length;
-	} else {
-		return -1;
 	}
+
+	struct file *file = fd_to_file (fd);
+
+	if (file == NULL) {
+		sys_exit (-1);
+	}
+
+	lock_acquire (&filesys_lock);
+
+	int bytes_write = file_write (file, buffer, length);
+
+	lock_release (&filesys_lock);
+
+	return bytes_write;
 }
 
 /* 이름이 FILE이고 크기가 INITIAL_SIZE인 파일을 만든다. 성공하면 true.
@@ -328,6 +339,11 @@ syscall_handler (struct intr_frame *f) {
 		case SYS_EXIT:
 			sys_exit ((int) f->R.rdi);
 			break;
+		case SYS_READ:
+			f->R.rax = sys_read ((int) f->R.rdi, 
+								(void *) f->R.rsi, 
+								(unsigned) f->R.rdx);
+			break;
 		case SYS_WRITE:
 			f->R.rax = sys_write ((int) f->R.rdi, 
 								  (const void *) f->R.rsi,
@@ -345,11 +361,6 @@ syscall_handler (struct intr_frame *f) {
 			break;
 		case SYS_CLOSE:
 			sys_close ((int) f->R.rdi);
-			break;
-		case SYS_READ:
-			f->R.rax = sys_read ((int) f->R.rdi, 
-								 (void *) f->R.rsi, 
-								 (unsigned) f->R.rdx);
 			break;
 		default:
 			sys_exit (-1);
