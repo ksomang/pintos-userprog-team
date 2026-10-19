@@ -15,6 +15,7 @@
 #include "filesys/file.h"
 #include "threads/palloc.h"
 #include "devices/input.h"
+#include <limits.h>
 
 void syscall_entry (void);
 static bool check_address (const void *addr);
@@ -22,6 +23,9 @@ static bool check_buffer (const void *buffer, size_t size);
 static bool check_string (const char *str);
 static void sys_halt (void);
 static int sys_read (int fd, void *buffer, unsigned length);
+static int sys_filesize (int fd);
+static void sys_seek (int fd, unsigned position);
+static unsigned sys_tell (int fd);
 static int sys_write (int fd, const void *buffer, unsigned length);
 static bool sys_create (const char *file, unsigned initial_size);
 static bool sys_remove (const char *file);
@@ -224,7 +228,6 @@ sys_halt (void) {
 
 /* FD를 통해 읽은 내용을 BUFFER에 LENGTH바이트를 쓰고, 실제로 쓴 바이트 수를 돌려준다.
    버퍼가 잘못된 주소면 프로세스를 exit(-1)로 끝낸다. */
-// TODO: read-normal 테스트 케이스를 통과하려면 filesize()를 구현해야 함
 static int
 sys_read (int fd, void *buffer, unsigned length) {
 	if (!check_buffer (buffer, length)) {
@@ -248,6 +251,53 @@ sys_read (int fd, void *buffer, unsigned length) {
 	lock_release (&filesys_lock);
 
 	return size;
+}
+
+static int 
+sys_filesize (int fd) {
+	struct file *file = fd_to_file (fd);
+	
+	if (file == NULL) {
+		sys_exit (-1);
+	}
+
+	lock_acquire (&filesys_lock);
+	int size = file_length (file);
+	lock_release (&filesys_lock);
+
+	return size;
+}
+
+static void 
+sys_seek (int fd, unsigned position) {
+	struct file *file = fd_to_file (fd);
+
+	if (file == NULL) {
+		sys_exit (-1);
+	}
+
+	if (position > INT_MAX) {
+		return;
+	}
+
+	lock_acquire (&filesys_lock);
+	file_seek (file, position);
+	lock_release (&filesys_lock);
+}
+
+static unsigned 
+sys_tell (int fd) {
+	struct file *file = fd_to_file (fd);
+
+	if (NULL == file) {
+		sys_exit (-1);
+	}
+
+	lock_acquire (&filesys_lock);
+	unsigned pos = file_tell (file);
+	lock_release (&filesys_lock);
+
+	return pos;
 }
 
 /* FD에 BUFFER의 LENGTH바이트를 쓰고, 실제로 쓴 바이트 수를 돌려준다.
@@ -355,6 +405,15 @@ syscall_handler (struct intr_frame *f) {
 			break;
 		case SYS_CLOSE:
 			sys_close ((int) f->R.rdi);
+			break;
+		case SYS_FILESIZE:
+			f->R.rax = sys_filesize ((int) f->R.rdi);
+			break;
+		case SYS_SEEK:
+			sys_seek ((int) f->R.rdi, (unsigned) f->R.rsi);
+			break;
+		case SYS_TELL:
+			f->R.rax = sys_tell ((int) f->R.rdi);
 			break;
 		default:
 			sys_exit (-1);
